@@ -15,7 +15,8 @@ import {
   TableProps,
 } from "antd";
 import { NewRule } from "./NewRule";
-import { ApiItem } from "./interface";
+import { ApiRuleItem, useRules } from "@/store/ruleStore";
+import { sendMessage } from "@/utils/sendMessage";
 
 type FormInstance<T> = GetRef<typeof Form<T>>;
 
@@ -23,7 +24,7 @@ interface EditableRowProps {
   index: number;
 }
 
-type ColumnTypes = Exclude<TableProps<ApiItem>["columns"], undefined>;
+type ColumnTypes = Exclude<TableProps<ApiRuleItem>["columns"], undefined>;
 
 const TableRowContext = createContext<FormInstance<any> | null>(null);
 const useRowForm = () => useContext(TableRowContext);
@@ -42,9 +43,9 @@ const TableRow: React.FC<EditableRowProps> = ({ index, ...props }) => {
 interface EditableCellProps {
   title: React.ReactNode;
   editable: boolean;
-  dataIndex: keyof ApiItem;
-  record: ApiItem;
-  handleSave: (record: ApiItem) => void;
+  dataIndex: keyof ApiRuleItem;
+  record: ApiRuleItem;
+  handleSave: (record: ApiRuleItem) => void;
 }
 
 const TableCell: React.FC<React.PropsWithChildren<EditableCellProps>> = ({
@@ -92,56 +93,26 @@ const TableCell: React.FC<React.PropsWithChildren<EditableCellProps>> = ({
   );
 };
 
-type ActionType =
-  | { type: "recover"; data: ApiItem[] }
-  | { type: "add"; data: Omit<ApiItem, "uuid"> }
-  | { type: "remove"; data: { uuid: string } }
-  | { type: "update"; data: Partial<ApiItem> & { uuid: string } };
 export function ApiTable() {
-  const recoverdRef = useRef(-1);
-  const [dataSource, dispatch] = useReducer<ApiItem[], [ActionType]>((state, action) => {
-    switch (action.type) {
-      case "recover":
-        return action.data;
-      case "add":
-        return [...state, { ...action.data, uuid: window.crypto.randomUUID() }];
-      case "remove":
-        return state.filter((item) => item.uuid !== action.data.uuid);
-      case "update":
-        return state.map((item) => {
-          if (item.uuid === action.data.uuid) {
-            return Object.assign({}, item, action.data);
-          }
-          return item;
-        });
-      default: {
-        return state;
-      }
-    }
-  }, []);
-  useEffect(() => {
-    recoverdRef.current = -1;
-    storage
-      .getItem<ApiItem[]>("local:rules")
-      .then((data) => {
-        if (data) {
-          dispatch({ type: "recover", data });
+  const [rules, setRules] = useRules();
+  const handleSaveUpdate = async (newRule: ApiRuleItem) => {
+    await sendMessage({ type: "updateDynamicRules", data: [newRule] });
+    setRules((rules) => {
+      return rules.map((rule) => {
+        if (rule.id === newRule.id) {
+          return Object.assign({}, rule, newRule);
         }
-      })
-      .finally(() => {
-        recoverdRef.current = 0;
+        return rule;
       });
-  }, []);
-  useEffect(() => {
-    if (dataSource.length && recoverdRef.current === 1) {
-      storage.setItem("local:rules", dataSource);
-    }
-    if (recoverdRef.current === 0) {
-      recoverdRef.current = 1;
-    }
-  }, [dataSource]);
-  const handleSave = (newRecord: Partial<ApiItem>) => {
-    dispatch({ type: "update", data: newRecord as ApiItem });
+    });
+  };
+  const handleRemove = async (id: number) => {
+    await sendMessage({ type: "removeDynamicRules", data: [id] });
+    setRules((rules) => rules.filter((rule) => rule.id !== id));
+  };
+  const handleAdd = async (data: ApiRuleItem) => {
+    await sendMessage({ type: "addDynamicRules", data: [data] });
+    setRules((rules) => rules.concat(data));
   };
   const defaultColumns: Array<ColumnTypes[number] & { editable?: boolean; dataIndex?: string }> = [
     { dataIndex: "path", title: "路径", width: 200, editable: true, align: "left" },
@@ -181,18 +152,20 @@ export function ApiTable() {
       title: "启用",
       width: 100,
       align: "center",
-      render: (enabled: boolean, record: ApiItem) => {
+      render: (enabled: boolean, record: ApiRuleItem) => {
         return (
           <TableRowContext.Consumer>
             {(form) => {
               return (
-                <Switch
-                  defaultChecked={enabled}
-                  onChange={(value) => {
-                    form!.setFieldValue("enabled", value);
-                    handleSave({ uuid: record.uuid, enabled: value });
-                  }}
-                />
+                <Form.Item>
+                  <Switch
+                    defaultChecked={enabled}
+                    onChange={(value) => {
+                      form!.setFieldValue("enabled", value);
+                      handleSaveUpdate({ ...record, enabled: value });
+                    }}
+                  />
+                </Form.Item>
               );
             }}
           </TableRowContext.Consumer>
@@ -204,8 +177,8 @@ export function ApiTable() {
       key: "operation",
       width: 100,
       align: "right",
-      render: (_: any, record: ApiItem) => (
-        <Button type="link" danger onClick={() => dispatch({ type: "remove", data: { uuid: record.uuid } })}>
+      render: (_: any, record: ApiRuleItem) => (
+        <Button type="link" danger onClick={() => handleRemove(record.id)}>
           删除
         </Button>
       ),
@@ -214,13 +187,13 @@ export function ApiTable() {
   const columns = defaultColumns.map((col) => {
     return {
       ...col,
-      onCell: (record: ApiItem) => {
+      onCell: (record: ApiRuleItem) => {
         return {
           record,
           editable: col.editable,
           dataIndex: col.dataIndex,
           title: col.title,
-          handleSave: handleSave,
+          handleSave: handleSaveUpdate,
         };
       },
     };
@@ -229,15 +202,15 @@ export function ApiTable() {
     <>
       <Card>
         <Flex gap="small">
-          <NewRule onOk={(data) => dispatch({ type: "add", data })} />
+          <NewRule onOk={handleAdd} />
           <Button type="primary">cURL</Button>
         </Flex>
         <Divider />
-        <Table<ApiItem>
+        <Table<ApiRuleItem>
           bordered={false}
-          rowKey="uuid"
+          rowKey="id"
           columns={columns as ColumnTypes}
-          dataSource={dataSource}
+          dataSource={rules}
           pagination={false}
           components={{
             body: {

@@ -11,11 +11,11 @@ import {
   Radio,
   Select,
 } from "antd";
-import { ApiItem } from "./interface";
 import { ChangeEventHandler, useRef, useState } from "react";
 import { curlToFetch } from "@/utils/curlToFetch";
 import { NamePath } from "antd/es/form/interface";
 import { atom } from "jotai";
+import { ApiRuleItem } from "@/store/ruleStore";
 
 enum MockType {
   JSON,
@@ -29,6 +29,7 @@ type MethodType = "GET" | "POST";
 type RuleFormType = {
   path: string;
   method: MethodType;
+  enabled: boolean;
   mock: {
     type: MockType;
     data: string;
@@ -279,7 +280,20 @@ function Mock(props: {
   );
 }
 
-export const NewRule = (props: { onOk: (data: ApiItem) => void }) => {
+function toAPIItem(data: RuleFormType): ApiRuleItem | null {
+  if (data.mock.type === MockType.JSON) {
+    return {
+      id: Math.floor(Math.random() * 100000000),
+      path: data.path,
+      method: data.method,
+      enabled: !!data.enabled,
+      mock: data.mock.json ?? "",
+    };
+  }
+  return null;
+}
+
+export const NewRule = (props: { onOk: (data: ApiRuleItem) => void }) => {
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm<RuleFormType>();
   const initialValues: Partial<RuleFormType> = {
@@ -312,8 +326,11 @@ export const NewRule = (props: { onOk: (data: ApiItem) => void }) => {
         onOk={() => {
           form.validateFields().then((values) => {
             console.debug("%c[values]", "color: red;background:yellow", values);
-            // props.onOk({ ...values, uuid: window.crypto.randomUUID(), enabled: false });
-            // closeModalAndResetForm();
+            const apiItem = toAPIItem(values);
+            if (apiItem) {
+              props.onOk(apiItem);
+            }
+            closeModalAndResetForm();
           });
         }}
       >
