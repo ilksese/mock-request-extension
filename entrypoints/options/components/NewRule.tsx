@@ -287,7 +287,7 @@ function toAPIItem(data: RuleFormType): ApiRuleItem | null {
       path: data.path,
       method: data.method,
       enabled: !!data.enabled,
-      mock: data.mock.json ?? "",
+      mock: data.mock.json ? JSON.stringify(JSON.parse(data.mock.json)) : "",
     };
   }
   return null;

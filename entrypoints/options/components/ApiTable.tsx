@@ -1,4 +1,4 @@
-import React, { createContext, useRef, useReducer, useEffect, useContext } from "react";
+import React, { createContext, useRef, useEffect, useContext } from "react";
 import {
   Form,
   Switch,
@@ -13,10 +13,10 @@ import {
   Card,
   Popover,
   TableProps,
+  Select,
 } from "antd";
 import { NewRule } from "./NewRule";
 import { ApiRuleItem, useRules } from "@/store/ruleStore";
-import { sendMessage } from "@/utils/sendMessage";
 
 type FormInstance<T> = GetRef<typeof Form<T>>;
 
@@ -94,26 +94,7 @@ const TableCell: React.FC<React.PropsWithChildren<EditableCellProps>> = ({
 };
 
 export function ApiTable() {
-  const [rules, setRules] = useRules();
-  const handleSaveUpdate = async (newRule: ApiRuleItem) => {
-    await sendMessage({ type: "updateDynamicRules", data: [newRule] });
-    setRules((rules) => {
-      return rules.map((rule) => {
-        if (rule.id === newRule.id) {
-          return Object.assign({}, rule, newRule);
-        }
-        return rule;
-      });
-    });
-  };
-  const handleRemove = async (id: number) => {
-    await sendMessage({ type: "removeDynamicRules", data: [id] });
-    setRules((rules) => rules.filter((rule) => rule.id !== id));
-  };
-  const handleAdd = async (data: ApiRuleItem) => {
-    await sendMessage({ type: "addDynamicRules", data: [data] });
-    setRules((rules) => rules.concat(data));
-  };
+  const [rules, { removeRules, updateRules, addRules }] = useRules();
   const defaultColumns: Array<ColumnTypes[number] & { editable?: boolean; dataIndex?: string }> = [
     { dataIndex: "path", title: "路径", width: 200, editable: true, align: "left" },
     {
@@ -121,24 +102,55 @@ export function ApiTable() {
       title: "方法",
       width: 80,
       align: "center",
-      render: (method: "GET" | "POST") => <Tag color={method === "GET" ? "green" : "red"}>{method}</Tag>,
+      render: (method: "GET" | "POST", record: ApiRuleItem) => {
+        return (
+          <Popover
+            trigger={"click"}
+            content={
+              <>
+                <Select
+                  defaultValue={method}
+                  onChange={(value) => {
+                    updateRules({ ...record, method: value });
+                  }}
+                >
+                  <Select.Option value="GET">GET</Select.Option>
+                  <Select.Option value="POST">POST</Select.Option>
+                </Select>
+              </>
+            }
+          >
+            <Tag color={method === "GET" ? "green" : "red"} className="cursor-pointer">
+              {method}
+            </Tag>
+          </Popover>
+        );
+      },
     },
     {
-      dataIndex: "json",
+      dataIndex: "mock",
       title: "数据",
       width: 100,
       align: "center",
       className: "cursor-pointer",
-      render: (json: string) => {
+      render: (mock: string, record: ApiRuleItem) => {
         return (
-          <div className="w-fit">
+          <div className="w-fit mx-auto">
             <Popover
               trigger={"click"}
-              title=""
+              title="Mock"
               content={
-                <pre>
-                  <code>{json}</code>
-                </pre>
+                <>
+                  <Card className="w-[500px] h-[500px] overflow-y-auto relative">
+                    <Input.TextArea
+                      defaultValue={mock ? JSON.stringify(JSON.parse(mock), null, 2) : ""}
+                      autoSize={{ minRows: 10 }}
+                      onBlur={(e) => {
+                        updateRules({ ...record, mock: JSON.stringify(JSON.parse(e.target.value)) });
+                      }}
+                    />
+                  </Card>
+                </>
               }
             >
               <Button type="link">编辑</Button>
@@ -157,15 +169,13 @@ export function ApiTable() {
           <TableRowContext.Consumer>
             {(form) => {
               return (
-                <Form.Item>
-                  <Switch
-                    defaultChecked={enabled}
-                    onChange={(value) => {
-                      form!.setFieldValue("enabled", value);
-                      handleSaveUpdate({ ...record, enabled: value });
-                    }}
-                  />
-                </Form.Item>
+                <Switch
+                  defaultChecked={enabled}
+                  onChange={(value) => {
+                    form!.setFieldValue("enabled", value);
+                    updateRules({ ...record, enabled: value });
+                  }}
+                />
               );
             }}
           </TableRowContext.Consumer>
@@ -176,9 +186,9 @@ export function ApiTable() {
       title: "操作",
       key: "operation",
       width: 100,
-      align: "right",
+      align: 'right',
       render: (_: any, record: ApiRuleItem) => (
-        <Button type="link" danger onClick={() => handleRemove(record.id)}>
+        <Button className="mr-auto" type="link" danger onClick={() => removeRules(record.id)}>
           删除
         </Button>
       ),
@@ -193,7 +203,7 @@ export function ApiTable() {
           editable: col.editable,
           dataIndex: col.dataIndex,
           title: col.title,
-          handleSave: handleSaveUpdate,
+          handleSave: updateRules,
         };
       },
     };
@@ -202,7 +212,7 @@ export function ApiTable() {
     <>
       <Card>
         <Flex gap="small">
-          <NewRule onOk={handleAdd} />
+          <NewRule onOk={addRules} />
           <Button type="primary">cURL</Button>
         </Flex>
         <Divider />
