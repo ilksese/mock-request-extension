@@ -1,13 +1,6 @@
+import { ApiRuleItem } from "@/types";
 import { sendMessage } from "@/utils/sendMessage";
 import { atom, useAtom } from "jotai";
-
-export interface ApiRuleItem {
-  id: number;
-  path: string;
-  method: string;
-  enabled: boolean;
-  mock: string;
-}
 
 const ruleAtom = atom<ApiRuleItem[]>([]);
 

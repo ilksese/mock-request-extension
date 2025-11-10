@@ -10,15 +10,17 @@ import {
   Modal,
   Radio,
   Select,
+  Space,
 } from "antd";
-import { ChangeEventHandler, useRef, useState } from "react";
-import { curlToFetch } from "@/utils/curlToFetch";
+import { ChangeEvent, ChangeEventHandler, useRef, useState } from "react";
 import { NamePath } from "antd/es/form/interface";
-import { atom } from "jotai";
-import { ApiRuleItem } from "@/store/ruleStore";
+import { ApiRuleItem } from "@/types";
+import { Editor } from "json5-editor";
+import JSON5 from "json5";
+import { catchError, debounceTime, distinctUntilChanged, fromEvent, map, of, switchMap } from "rxjs";
+import { ajax } from "rxjs/ajax";
 
 enum MockType {
-  JSON,
   JSON5,
   cURL,
   generate,
@@ -34,7 +36,7 @@ type RuleFormType = {
     type: MockType;
     data: string;
     schema: MockObjectSchema[];
-    json?: string;
+    json5?: string;
     cURL?: string;
   };
 };
@@ -46,8 +48,6 @@ interface MockObjectSchema {
   valueType: "string" | "number" | "boolean" | "object" | "array";
   attrs: MockObjectSchema[];
 }
-
-const jsonAtom = atom("");
 
 function MockObjectSchemaBuilder(props: {
   root?: boolean;
@@ -219,59 +219,50 @@ function Mock(props: {
   const cURLRef = useRef<InputRef>(null);
   const [fetching, setFetching] = useState(false);
   const mockType = form.getFieldValue(["mock", "type"]);
+  useEffect(() => {
+    if (mockType !== MockType.cURL) return;
+    const search$ = fromEvent<ChangeEvent<HTMLInputElement>>(cURLRef.current!.input!, "input").pipe(
+      map((e) => e.target.value.trim()),
+      distinctUntilChanged(),
+      debounceTime(1000),
+      switchMap((value) => {
+        setFetching(true);
+        return ajax.getJSON(value).pipe(
+          catchError((error) => {
+            console.error("Error:", error);
+            return of(null);
+          })
+        );
+      })
+    );
+    const sub = search$.subscribe((results) => {
+      setFetching(false);
+    });
+    return () => {
+      sub.unsubscribe();
+    };
+  }, [mockType]);
   return (
     <>
       <Flex vertical>
         <Form.Item<RuleFormType> name={["mock", "type"]}>
           <Radio.Group>
-            <Radio value={MockType.JSON}>JSON</Radio>
             <Radio value={MockType.JSON5}>JSON5</Radio>
             <Radio value={MockType.cURL}>cURL</Radio>
             <Radio value={MockType.generate}>生成</Radio>
           </Radio.Group>
         </Form.Item>
-        {mockType === MockType.JSON || mockType === MockType.JSON5 ? (
-          <Form.Item<RuleFormType> name={["mock", "json"]}>
-            <Input.TextArea placeholder={mockType === MockType.JSON ? "JSON" : "JSON5"} autoSize={{ minRows: 4 }} />
+        {mockType === MockType.JSON5 ? (
+          <Form.Item<RuleFormType> name={["mock", "json5"]}>
+            <Editor />
           </Form.Item>
         ) : mockType === MockType.cURL ? (
-          <Flex justify="space-between" className="gap-4">
-            <Form.Item<RuleFormType> name={["mock", "cURL"]}>
-              <Input placeholder="cURL" disabled={fetching} ref={cURLRef} />
-            </Form.Item>
-            <Button
-              type="primary"
-              loading={fetching}
-              onClick={() => {
-                setFetching(true);
-                curlToFetch(cURLRef.current!.input!.value)
-                  .then((res) => {
-                    if (
-                      res.headers.get("content-type")?.includes("application/json") ||
-                      res.headers.get("content-type")?.includes("text/plain")
-                    ) {
-                      return res.text();
-                    } else {
-                      throw new Error("Not JSON");
-                    }
-                  })
-                  .then((data) => {
-                    try {
-                      // @ts-ignore
-                      props.onChange?.({ target: { value: JSON.parse(data) } });
-                    } catch (error) {
-                      // @ts-ignore
-                      props.onChange({ target: { value: data } });
-                    }
-                  })
-                  .finally(() => {
-                    setFetching(false);
-                  });
-              }}
-            >
-              获取
-            </Button>
-          </Flex>
+          <Form.Item<RuleFormType> name={["mock", "cURL"]}>
+            <Space.Compact>
+              <Button className="pointer-events-none">{fetching ? "加载中" : "地址"}</Button>
+              <Input ref={cURLRef} placeholder="cURL" />
+            </Space.Compact>
+          </Form.Item>
         ) : mockType === MockType.generate ? (
           <MockObject form={form} />
         ) : null}
@@ -281,16 +272,14 @@ function Mock(props: {
 }
 
 function toAPIItem(data: RuleFormType): ApiRuleItem | null {
-  if (data.mock.type === MockType.JSON) {
-    return {
-      id: Math.floor(Math.random() * 100000000),
-      path: data.path,
-      method: data.method,
-      enabled: !!data.enabled,
-      mock: data.mock.json ? JSON.stringify(JSON.parse(data.mock.json)) : "",
-    };
-  }
-  return null;
+  return {
+    id: Math.floor(Math.random() * 100000000),
+    path: data.path,
+    method: data.method,
+    enabled: !!data.enabled,
+    mock:
+      data.mock.type === MockType.JSON5 ? (data.mock.json5 ? JSON.stringify(JSON5.parse(data.mock.json5)) : "") : "",
+  };
 }
 
 export const NewRule = (props: { onOk: (data: ApiRuleItem) => void }) => {
@@ -300,7 +289,7 @@ export const NewRule = (props: { onOk: (data: ApiRuleItem) => void }) => {
     path: "",
     method: "GET",
     mock: {
-      type: MockType.JSON,
+      type: MockType.JSON5,
       schema: [{ name: "", valueType: "string", attrs: [] }],
       data: "{}",
     },

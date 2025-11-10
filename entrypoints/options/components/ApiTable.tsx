@@ -16,7 +16,10 @@ import {
   Select,
 } from "antd";
 import { NewRule } from "./NewRule";
-import { ApiRuleItem, useRules } from "@/store/ruleStore";
+import { useRules } from "@/store/ruleStore";
+import { ApiRuleItem } from "@/types";
+import { Editor } from "json5-editor";
+import JSON5 from "json5";
 
 type FormInstance<T> = GetRef<typeof Form<T>>;
 
@@ -95,6 +98,7 @@ const TableCell: React.FC<React.PropsWithChildren<EditableCellProps>> = ({
 
 export function ApiTable() {
   const [rules, { removeRules, updateRules, addRules }] = useRules();
+  let timer = useRef<any>(null);
   const defaultColumns: Array<ColumnTypes[number] & { editable?: boolean; dataIndex?: string }> = [
     { dataIndex: "path", title: "路径", width: 200, editable: true, align: "left" },
     {
@@ -142,11 +146,15 @@ export function ApiTable() {
               content={
                 <>
                   <Card className="w-[500px] h-[500px] overflow-y-auto relative">
-                    <Input.TextArea
-                      defaultValue={mock ? JSON.stringify(JSON.parse(mock), null, 2) : ""}
-                      autoSize={{ minRows: 10 }}
-                      onBlur={(e) => {
-                        updateRules({ ...record, mock: JSON.stringify(JSON.parse(e.target.value)) });
+                    <Editor
+                      initialValue={mock}
+                      onChange={(value) => {
+                        timer.current && clearTimeout(timer.current);
+                        timer.current = setTimeout(() => {
+                          try {
+                            updateRules({ ...record, mock: JSON.stringify(JSON5.parse(value)) });
+                          } catch (error) {}
+                        }, 5000);
                       }}
                     />
                   </Card>
@@ -186,7 +194,7 @@ export function ApiTable() {
       title: "操作",
       key: "operation",
       width: 100,
-      align: 'right',
+      align: "right",
       render: (_: any, record: ApiRuleItem) => (
         <Button className="mr-auto" type="link" danger onClick={() => removeRules(record.id)}>
           删除

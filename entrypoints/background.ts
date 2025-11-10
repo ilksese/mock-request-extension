@@ -1,4 +1,4 @@
-import { ApiRuleItem } from "@/store/ruleStore";
+import { ApiRuleItem } from "@/types";
 
 export default defineBackground(async () => {
   // console.log("Hello background!", { id: browser.runtime.id });
